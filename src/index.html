@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Forest Resume - Yash Agarwal</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #000;
+      font-family: Arial, sans-serif;
+    }
+/*  
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #111;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      transition: opacity 1s ease;
+    }
+    
+    #loading-text {
+      font-size: 2em;
+      margin-bottom: 20px;
+    }
+    
+    #loading-bar-container {
+      width: 50%;
+      height: 20px;
+      border: 2px solid white;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    
+    #loading-bar {
+      height: 100%;
+      width: 0%;
+      background-color: #4CAF50;
+      transition: width 0.3s ease;
+    }
+    */
+    #instructions {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 15px;
+      border-radius: 5px;
+      max-width: 300px;
+      z-index: 100;
+    }
+    
+    .error-message {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(255, 0, 0, 0.8);
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 2000;
+      display: none;
+    }
+    
+    .info-panel {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 25px;
+      border-radius: 10px;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+      z-index: 500;
+      display: none;
+    }
+    
+    .info-panel h2 {
+      margin-top: 0;
+      color: #4CAF50;
+    }
+    
+    .info-panel button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 15px;
+    }
+    
+    .info-panel button:hover {
+      background-color: #3e8e41;
+    }
+  </style>
+</head>
+<body>
+  <!-- <div id="loading-screen">
+    <div id="loading-text">Loading Interactive Forest Resume</div>
+    <div id="loading-bar-container">
+      <div id="loading-bar"></div>
+    </div>
+  </div> -->
+  
+  <div id="instructions">
+    <h3>Interactive Resume</h3>
+    <p>Use W/A/S/D or Arrow Keys to control the carriage.</p>
+    <p>Press C to change camera view.</p>
+    <p>Drive to each scroll to view different sections of the resume.</p>
+  </div>
+  
+  <div id="error-message" class="error-message">
+    An error occurred. Please check the console for details.
+  </div>
+  
+  <div id="about-panel" class="info-panel">
+    <h2>About Me</h2>
+    <p>Hi, I'm Yash Agarwal, a passionate software engineer with expertise in full-stack development, 
+       game development, and interactive experiences.</p>
+    <p>With a strong foundation in computer science and a creative approach to problem-solving, 
+       I build immersive digital experiences that combine technical excellence with intuitive design.</p>
+    <button id="close-about">Close</button>
+  </div>
+  
+  <div id="experience-panel" class="info-panel">
+    <h2>Work Experience</h2>
+    <h3>Senior Software Engineer - TechCorp</h3>
+    <p>2022 - Present</p>
+    <ul>
+      <li>Led development of interactive data visualization platform using Three.js and React</li>
+      <li>Improved application performance by 40% through optimization techniques</li>
+      <li>Mentored junior developers and implemented agile methodologies</li>
+    </ul>
+    
+    <h3>Full Stack Developer - WebSolutions Inc.</h3>
+    <p>2020 - 2022</p>
+    <ul>
+      <li>Developed responsive web applications with modern JavaScript frameworks</li>
+      <li>Created RESTful APIs and managed database architecture</li>
+      <li>Collaborated with UX/UI designers to implement engaging user experiences</li>
+    </ul>
+    <button id="close-experience">Close</button>
+  </div>
+  
+  <div id="skills-panel" class="info-panel">
+    <h2>Technical Skills</h2>
+    <h3>Languages</h3>
+    <p>JavaScript, TypeScript, Python, C#, HTML5, CSS3</p>
+    
+    <h3>Frameworks & Libraries</h3>
+    <p>React, Three.js, Node.js, Express, Unity3D, WebGL</p>
+    
+    <h3>Tools & Technologies</h3>
+    <p>Git, Docker, AWS, MongoDB, PostgreSQL, RESTful APIs, GraphQL</p>
+    
+    <h3>Specializations</h3>
+    <p>3D Web Development, Interactive User Experiences, Game Development, 
+       Responsive Design, Performance Optimization</p>
+    <button id="close-skills">Close</button>
+  </div>
+  
+  <div id="projects-panel" class="info-panel">
+    <h2>Featured Projects</h2>
+    
+    <h3>VR Training Simulator</h3>
+    <p>Developed an immersive VR training platform for industrial safety protocols using Unity and WebXR.</p>
+    
+    <h3>Interactive Data Dashboard</h3>
+    <p>Created a 3D data visualization dashboard for financial analytics using Three.js and D3.</p>
+    
+    <h3>Mobile AR Navigation App</h3>
+    <p>Built an augmented reality navigation application for urban exploration with gamified elements.</p>
+    <button id="close-projects">Close</button>
+  </div>
+  
+  <div id="education-panel" class="info-panel">
+    <h2>Education</h2>
+    <h3>Master of Science in Computer Science</h3>
+    <p>Technical University | 2018 - 2020</p>
+    <p>Specialization in Computer Graphics and Interactive Systems</p>
+    
+    <h3>Bachelor of Science in Software Engineering</h3>
+    <p>University of Technology | 2014 - 2018</p>
+    <p>Graduated with Honors</p>
+    <button id="close-education">Close</button>
+  </div>
+  
+  <script src="bundle.js"></script>
+</body>
+</html>
