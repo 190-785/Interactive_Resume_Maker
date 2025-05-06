@@ -1,4 +1,4 @@
 @echo off
-REM Simple local server using Python 3 serving from src directory
-cd /d F:\Interavtive_Resume\src
-python -m http.server 8080
+REM Start webpack devServer for development
+cd /d F:\Interavtive_Resume
+npx webpack serve --config webpack.config.js --mode development --open
