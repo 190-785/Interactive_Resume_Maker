@@ -213,10 +213,10 @@ function loadTexture(path, fallback, repeat = 1) {
 // ───── Ground ─────────────────────────────────────────────────────────────────
 function createGround() {
   // Try loading textures with fallbacks
-  const color = loadTexture('textures/grass/Grass001_1K-JPG_Color.jpg', fallbackTextures.color, 30);
-  const normal = loadTexture('textures/grass/Grass001_1K-JPG_NormalGL.jpg', fallbackTextures.normal, 30);
-  const roughness = loadTexture('textures/grass/Grass001_1K-JPG_Roughness.jpg', fallbackTextures.roughness, 30);
-  const ao = loadTexture('textures/grass/Grass001_1K-JPG_AmbientOcclusion.jpg', fallbackTextures.ao, 30);
+  const color = loadTexture('textures/Grass001_1K-JPG_Color.jpg', fallbackTextures.color, 30);
+  const normal = loadTexture('textures/Grass001_1K-JPG_NormalGL.jpg', fallbackTextures.normal, 30);
+  const roughness = loadTexture('textures/Grass001_1K-JPG_Roughness.jpg', fallbackTextures.roughness, 30);
+  const ao = loadTexture('textures/Grass001_1K-JPG_AmbientOcclusion.jpg', fallbackTextures.ao, 30);
 
   const geo = new THREE.PlaneGeometry(200, 200);
   const mat = new THREE.MeshStandardMaterial({
@@ -260,8 +260,8 @@ function createForest() {
   trunks.castShadow = trunks.receiveShadow = true;
 
   // Leaves - use fallback texture if needed
-  const leafTexture = loadTexture('textures/leaves/LeafSet015_1K-JPG_Color.jpg', fallbackTextures.color);
-  const alphaTexture = loadTexture('textures/leaves/LeafSet015_1K-JPG_Opacity.jpg', fallbackTextures.opacity);
+  const leafTexture = loadTexture('textures/LeafSet015_1K-JPG_Color.jpg', fallbackTextures.color);
+  const alphaTexture = loadTexture('textures/LeafSet015_1K-JPG_Opacity.jpg', fallbackTextures.opacity);
   
   const leafGeo = new THREE.ConeGeometry(1, 1.5, 8);
   const leafMat = new THREE.MeshStandardMaterial({
