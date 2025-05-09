@@ -2,32 +2,40 @@
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
-import Carriage from './assets/carriage.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'; // Added MTLLoader
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+// GUI import is present but GUI is not used in the current script. Can be removed if not planned.
+// import { GUI } from 'dat.gui';
 
 // ───── Constants ───────────────────────────────────────────────────────────────
-const PATH_POINTS = 100;
-const TREE_COUNT = 50;
-const FOREST_RADIUS = 80;
-const SCROLL_PROXIMITY_THRESHOLD = 3;
-const MAX_DELTA = 0.05; // clamp frame delta to 50ms
+const PATH_LENGTH = 100;
+const ROAD_WIDTH = 6;
+const TREE_SPACING_MODULO = 28; // Increased for more spacing
+const LOAD_TIMEOUT = 60000; // 60 seconds
+const SCROLL_PROXIMITY_THRESHOLD = 4; // Slightly increased
+const MAX_DELTA = 0.05;
+
+// Ground and Path Y positions
+const GROUND_Y = 0;
+const ROAD_Y = 0.01; // Road slightly above ground
+const PATH_ELEMENT_Y = 0.02; // Trees, scrolls, car on this level, slightly above road
 
 // ───── Scratch Objects ─────────────────────────────────────────────────────────
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
-const _v4 = new THREE.Vector3();
 const _q  = new THREE.Quaternion();
 const _m  = new THREE.Matrix4();
+const Y_AXIS = new THREE.Vector3(0, 1, 0); // For rotations
 
 // ───── Camera Settings ─────────────────────────────────────────────────────────
 const cameraSettings = {
-  distance: 5,
-  height: 2,
-  smoothing: 0.1,
-  mode: 'chase',
-  fovTransitionSpeed: 1,
-  defaultFOV: 75,
-  movingFOV: 80
+  distance: 22, // Increased distance for farther view
+  height: 7,    // Increased height
+  smoothing: 0.04, // Adjusted smoothing
+  defaultFOV: 60, // Slightly reduced FOV can make distance feel greater
 };
 
 // ───── Scene, Camera, Renderer ─────────────────────────────────────────────────
@@ -40,21 +48,19 @@ const camera = new THREE.PerspectiveCamera(
 
 let renderer;
 try {
-  // First, try to create a WebGL2 renderer
   renderer = new THREE.WebGLRenderer({
     antialias: true,
     powerPreference: 'high-performance',
     alpha: false
   });
-  console.log("WebGL2 renderer created successfully");
 } catch (e) {
-  console.warn('WebGL2 not supported, falling back to WebGL1');
-  // Fall back to WebGL1
-  renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    powerPreference: 'high-performance',
-    alpha: false
-  });
+  console.error('WebGL initialization failed:', e);
+  const errorMsgElement = document.getElementById('error-message');
+  if (errorMsgElement) {
+    errorMsgElement.textContent = `WebGL Error: ${e.message}`;
+    errorMsgElement.style.display = 'block';
+  }
+  throw e;
 }
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -64,9 +70,25 @@ document.body.appendChild(renderer.domElement);
 // ───── Error Handling ───────────────────────────────────────────────────────────
 const errorMessage = document.getElementById('error-message');
 window.addEventListener('error', (event) => {
-  console.error('Error occurred:', event.error);
-  errorMessage.style.display = 'block';
-  errorMessage.textContent = 'Error: ' + event.error.message;
+  console.error('Error occurred:', event.error || event.message); // Handle both error object and message string
+  if (errorMessage) {
+    errorMessage.style.display = 'block';
+    errorMessage.textContent = 'Error: ' + (event.error ? event.error.message : event.message);
+  }
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled rejection:', event.reason);
+  if (errorMessage) {
+    errorMessage.style.display = 'block';
+    let msg = 'Async Error: An unknown error occurred.';
+    if (event.reason instanceof Error) {
+        msg = `Async Error: ${event.reason.message}`;
+    } else if (typeof event.reason === 'string') {
+        msg = `Async Error: ${event.reason}`;
+    }
+    errorMessage.textContent = msg;
+  }
 });
 
 // Show loading indicator
@@ -93,70 +115,73 @@ loadingContainer.innerHTML = `
 document.body.appendChild(loadingContainer);
 
 // ───── Fog & Background ────────────────────────────────────────────────────────
-//scene.fog = new THREE.FogExp2(0x88aa88, 0.01);
 scene.background = new THREE.Color(0x8ab6c1);
 
 // ───── Lights ─────────────────────────────────────────────────────────────────
-const ambient = new THREE.AmbientLight(0xb0dae7, 0.6);
-const sun = new THREE.DirectionalLight(0xfff0d9, 1.5);
-sun.position.set(5, 10, 5);
+const ambient = new THREE.AmbientLight(0xffffff, 1.8); // Slightly reduced ambient
+const sun = new THREE.DirectionalLight(0xffffff, 2.5); // Slightly reduced sun
+sun.position.set(25, 30, 20); // Adjusted sun position for potentially better angles
 sun.castShadow = true;
-// Lower shadow resolution + tighten frustum
-sun.shadow.mapSize.width = 512;
-sun.shadow.mapSize.height = 512;
+sun.shadow.mapSize.width = 1024; // Increased shadow map size for better quality
+sun.shadow.mapSize.height = 1024;
 sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 50;
-sun.shadow.camera.left = -50;
-sun.shadow.camera.right = 50;
-sun.shadow.camera.top = 50;
-sun.shadow.camera.bottom = -50;
+sun.shadow.camera.far = 100; // Increased far plane for shadows
+sun.shadow.camera.left = -60;
+sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60;
+sun.shadow.camera.bottom = -60;
 scene.add(ambient, sun);
 
-const hemiLight = new THREE.HemisphereLight(0x88cc88, 0x224422, 0.8);
+const hemiLight = new THREE.HemisphereLight(0x88cc88, 0x224422, 0.7);
 scene.add(hemiLight);
 
-const pointLight = new THREE.PointLight(0xffeedd, 0.8);
-pointLight.position.set(0, 5, 0);
-scene.add(pointLight);
-
-const spotLight = new THREE.SpotLight(0xffffcc, 0.7);
-spotLight.position.set(-5, 10, 5);
-scene.add(spotLight);
+// ───── Global Variables for Loaded Assets ───────────────────────────────────────
+let helvetikerFont = null;
 
 // ───── Resource Manager ─────────────────────────────────────────────────────────
-// Loading manager to track progress
-const loadingManager = new THREE.LoadingManager();
-loadingManager.onProgress = function(url, loaded, total) {
-  const progress = (loaded / total) * 100;
-  const progressBar = document.getElementById('loading-progress');
-  if (progressBar) {
-    progressBar.style.width = progress + '%';
+const loadingManager = new THREE.LoadingManager(
+  () => {
+    console.log('All critical assets loaded!');
+    clearTimeout(timeoutHandle);
+    if (!window.initialized) {
+      window.initialized = true;
+      loadingContainer.style.opacity = '0';
+      setTimeout(() => {
+        loadingContainer.style.display = 'none';
+        init();
+      }, 1000);
+    }
+  },
+  (url, itemsLoaded, itemsTotal) => {
+    console.log(`Loading: ${itemsLoaded}/${itemsTotal} ${url}`);
+    const progressElement = document.getElementById('loading-progress');
+    if (progressElement) {
+        progressElement.style.width = `${(itemsLoaded/itemsTotal)*100}%`;
+    }
+  },
+  (url) => {
+    console.error(`Error loading via manager: ${url}`);
+    if (errorMessage) {
+        errorMessage.textContent = `Failed to load: ${url}`;
+        errorMessage.style.display = 'block';
+    }
   }
-  console.log(`Loading: ${Math.round(progress)}% (${url})`);
-};
+);
 
-loadingManager.onLoad = function() {
-  console.log('loadingManager.onLoad triggered');
-  console.log('All resources loaded!');
-  // Hide loading screen with fade effect
-  loadingContainer.style.opacity = 0;
-  setTimeout(() => {
-    loadingContainer.style.display = 'none';
-    init(); // Initialize after assets load
-  }, 1000);
-};
+let timeoutHandle = setTimeout(() => {
+  if (errorMessage) {
+    errorMessage.textContent = 'Loading timeout - Check console for details';
+    errorMessage.style.display = 'block';
+  }
+  console.error('Loading timeout. Check network tab for stalled resources.');
+}, LOAD_TIMEOUT);
 
-loadingManager.onError = function(url) {
-  console.error('Error loading:', url);
-  errorMessage.style.display = 'block';
-  errorMessage.textContent = `Error loading resource: ${url}`;
-};
 
-// Create a shared TextureLoader with our manager
-const loader = new THREE.TextureLoader(loadingManager);
+const appTextureLoader = new THREE.TextureLoader(loadingManager);
 
 // ───── Fallback Textures ───────────────────────────────────────────────────────
-// Generate procedural textures for fallbacks
+// createFallbackTexture function remains the same
+
 function createFallbackTexture(color, resolution = 128) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = resolution;
@@ -165,7 +190,6 @@ function createFallbackTexture(color, resolution = 128) {
   ctx.fillRect(0, 0, resolution, resolution);
   
   if (color !== '#FFFFFF') {
-    // Add some noise for texture
     ctx.fillStyle = 'rgba(255,255,255,0.1)';
     for (let i = 0; i < 500; i++) {
       const x = Math.random() * resolution;
@@ -174,59 +198,59 @@ function createFallbackTexture(color, resolution = 128) {
       ctx.fillRect(x, y, size, size);
     }
   }
-  
   const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.needsUpdate = true; // Ensure canvas is uploaded
   return texture;
 }
 
-// Fallback textures
 const fallbackTextures = {
-  color: createFallbackTexture('#4A7023'),
-  normal: createFallbackTexture('#8080FF'),
-  roughness: createFallbackTexture('#888888'),
-  ao: createFallbackTexture('#FFFFFF'),
-  opacity: createFallbackTexture('#FFFFFF')
+  color: createFallbackTexture('#4A7023'), // Dark green
+  normal: createFallbackTexture('#8080FF'), // Blueish for normal map
+  roughness: createFallbackTexture('#888888'), // Grey
+  ao: createFallbackTexture('#FFFFFF'), // White
+  opacity: createFallbackTexture('#FFFFFF') // White
 };
+
 
 // ───── Texture Loading Helper ─────────────────────────────────────────────────
 function loadTexture(path, fallback, repeat = 1) {
-  try {
-    const texture = loader.load(
-      path,
-      undefined,
-      undefined,
-      () => {
-        console.warn(`Texture not found: ${path}, using fallback`);
-        return fallback;
+  const texture = appTextureLoader.load( // Use the manager-associated loader
+    path,
+    () => console.log('Texture loaded:', path),
+    undefined, // onProgress not needed here, manager handles aggregate
+    (err) => { // onError
+      console.error('Error loading texture:', path, err);
+      // The texture object will be a dummy. We need to replace its image.
+      if (texture && fallback && fallback.image) {
+        texture.image = fallback.image;
+        texture.needsUpdate = true;
+        console.log(`Applied fallback for texture: ${path}`);
+      } else {
+        console.error(`Fallback or texture object not available for ${path}`);
       }
-    );
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(repeat, repeat);
-    return texture;
-  } catch (e) {
-    console.warn(`Error loading texture: ${path}`, e);
-    return fallback;
-  }
+    }
+  );
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeat, repeat);
+  return texture;
 }
 
 // ───── Ground ─────────────────────────────────────────────────────────────────
 function createGround() {
-  // Try loading textures with fallbacks
-  const color = loadTexture('textures/Grass001_1K-JPG_Color.jpg', fallbackTextures.color, 30);
-  const normal = loadTexture('textures/Grass001_1K-JPG_NormalGL.jpg', fallbackTextures.normal, 30);
-  const roughness = loadTexture('textures/Grass001_1K-JPG_Roughness.jpg', fallbackTextures.roughness, 30);
-  const ao = loadTexture('textures/Grass001_1K-JPG_AmbientOcclusion.jpg', fallbackTextures.ao, 30);
+  const color = loadTexture('textures/Grass001_1K-JPG_Color.jpg', fallbackTextures.color, 40); // Increased repeat for larger ground
+  const normal = loadTexture('textures/Grass001_1K-JPG_NormalGL.jpg', fallbackTextures.normal, 40);
+  const roughness = loadTexture('textures/Grass001_1K-JPG_Roughness.jpg', fallbackTextures.roughness, 40);
+  const ao = loadTexture('textures/Grass001_1K-JPG_AmbientOcclusion.jpg', fallbackTextures.ao, 40);
 
-  const geo = new THREE.PlaneGeometry(200, 200);
+  const geo = new THREE.PlaneGeometry(300, 300); // Larger ground plane
   const mat = new THREE.MeshStandardMaterial({
     map: color,
     normalMap: normal,
     roughnessMap: roughness,
     aoMap: ao,
-    color: 0x338833
   });
   const ground = new THREE.Mesh(geo, mat);
+  ground.position.y = GROUND_Y;
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
@@ -236,78 +260,11 @@ function createGround() {
 // ───── Path ───────────────────────────────────────────────────────────────────
 function createPath() {
   const points = [];
-  for (let i = 0; i < PATH_POINTS; i++) {
-    const t = i / (PATH_POINTS - 1);
-    const x = 20 * Math.sin(t * Math.PI * 2);
-    const z = -50 + t * 100;
-    points.push(new THREE.Vector3(x, 0.05, z));
+  for (let i = 0; i <= PATH_LENGTH; i++) {
+    const z = -PATH_LENGTH / 2 + i;
+    points.push(new THREE.Vector3(0, PATH_ELEMENT_Y, z)); // Path elements elevated
   }
-  const curve = new THREE.CatmullRomCurve3(points);
-  const geo = new THREE.TubeGeometry(curve, 50, 2, 8, false);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 1.0 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  return curve;
-}
-
-// ───── Forest (Instanced) ─────────────────────────────────────────────────────
-function createForest() {
-  // Trunks
-  const trunkGeo = new THREE.CylinderGeometry(0.7, 1, 1, 8);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 });
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, TREE_COUNT);
-  trunks.castShadow = trunks.receiveShadow = true;
-
-  // Leaves - use fallback texture if needed
-  const leafTexture = loadTexture('textures/LeafSet015_1K-JPG_Color.jpg', fallbackTextures.color);
-  const alphaTexture = loadTexture('textures/LeafSet015_1K-JPG_Opacity.jpg', fallbackTextures.opacity);
-  
-  const leafGeo = new THREE.ConeGeometry(1, 1.5, 8);
-  const leafMat = new THREE.MeshStandardMaterial({
-    map: leafTexture,
-    alphaMap: alphaTexture,
-    transparent: true,
-    roughness: 1.0
-  });
-  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, TREE_COUNT);
-  leaves.castShadow = leaves.receiveShadow = true;
-
-  let idx = 0;
-  for (let i = 0; i < TREE_COUNT * 2 && idx < TREE_COUNT; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 10 + Math.random() * FOREST_RADIUS;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
-    if (Math.abs(x) < 5 && Math.abs(z) < 50) continue;
-
-    const height = 1 + Math.random() * 2;
-    const scale = 0.7 + Math.random() * 0.8;
-
-    // Trunk matrix
-    _v1.set(x, height / 2, z);
-    _q.identity();
-    _v2.set(0.7, height, 0.7);
-    _m.compose(_v1, _q, _v2);
-    trunks.setMatrixAt(idx, _m);
-
-    // Leaf matrix
-    _v1.set(x, height + scale * 0.75, z);
-    _v2.set(scale, scale, scale);
-    _m.compose(_v1, _q, _v2);
-    leaves.setMatrixAt(idx, _m);
-
-    idx++;
-  }
-  
-  // Optimization: reduce shadow complexity
-  trunks.castShadow = false;
-  trunks.receiveShadow = true;
-  leaves.castShadow = false;
-  leaves.receiveShadow = true;
-
-  trunks.count = leaves.count = idx;
-  scene.add(trunks, leaves);
+  return new THREE.CatmullRomCurve3(points);
 }
 
 // ───── UI Manager & Scroll Proximity ───────────────────────────────────────────
@@ -325,14 +282,15 @@ class UIManager {
 
     for (let key of Object.keys(this.panels)) {
       const panel = this.panels[key];
-      if (!panel) continue;
-      
-      const id = panel.id.split('-')[0]; // "skills", etc.
+      if (!panel) {
+        console.warn(`UI panel not found for: ${key}`);
+        continue;
+      }
+      const id = panel.id.split('-')[0];
       const closeButton = document.getElementById(`close-${id}`);
       if (closeButton) {
         closeButton.addEventListener('click', () => {
-          panel.style.display = 'none';
-          this.shown.delete(key);
+          this.hide(key); // Use hide method
         });
       }
     }
@@ -345,85 +303,103 @@ class UIManager {
       this.shown.add(title);
     }
   }
+
+  hide(title) {
+    const panel = this.panels[title];
+    if (panel && this.shown.has(title)) {
+        panel.style.display = 'none';
+        this.shown.delete(title);
+    }
+  }
+
+  isOpen(title) {
+    return this.shown.has(title);
+  }
 }
 
-function createResumeContent(pathCurve) {
+function createResumeContent(pathCurveInstance, uiInstance) {
   const sections = [
-    { title: 'About',      pos: -0.9, color: 0xFF6347 },
-    { title: 'Skills',     pos: -0.7, color: 0x6495ED },
-    { title: 'Experience', pos: -0.4, color: 0x9ACD32 },
-    { title: 'Projects',   pos: -0.1, color: 0xDA70D6 },
-    { title: 'Education',  pos:  0.2, color: 0xFFA500 }
+    { title: 'About',      pos: -0.9, color: 0xFF6347 }, // Tomato
+    { title: 'Skills',     pos: -0.7, color: 0x6495ED }, // CornflowerBlue
+    { title: 'Experience', pos: -0.4, color: 0x9ACD32 }, // YellowGreen
+    { title: 'Projects',   pos: -0.1, color: 0xDA70D6 }, // Orchid
+    { title: 'Education',  pos:  0.2, color: 0xFFA500 }  // Orange
   ];
   
   sections.forEach(s => {
-    const t = THREE.MathUtils.clamp(s.pos + 0.5, 0, 1);
-    const pt = pathCurve.getPointAt(t);
-    const tg = pathCurve.getTangentAt(t);
-    createScroll(pt, tg, s.title, s.color);
+    const t = THREE.MathUtils.clamp(s.pos + 0.5, 0.05, 0.95); // Avoid exact ends for tangent
+    const pt = pathCurveInstance.getPointAt(t);
+    const tg = pathCurveInstance.getTangentAt(t);
+    createScroll(pt, tg, s.title, s.color, uiInstance);
   });
 }
 
-const fontLoader = new FontLoader(loadingManager);
 
-function createScroll(position, direction, title, color) {
-  const offset = new THREE.Vector3(-direction.z, 0, direction.x)
-    .normalize()
-    .multiplyScalar(3);
-  const scrollPos = position.clone().add(offset);
+function createScroll(position, direction, title, color, ui) {
+  // Randomize scroll placement slightly more
+  const sideOffsetMagnitude = ROAD_WIDTH / 2 + 2 + Math.random() * 3; // 2-5 units from road edge
+  const zOffsetMagnitude = (Math.random() - 0.5) * 4; // +/- 2 units along path direction
 
-  // Cylinder base
-  const geo = new THREE.CylinderGeometry(0.5, 0.5, 2, 16);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xE8DCCA, roughness: 0.9 });
+  const randomSide = Math.random() < 0.5 ? 1 : -1; // Place on left or right
+
+  _v2.set(-direction.z * randomSide, 0, direction.x * randomSide).normalize().multiplyScalar(sideOffsetMagnitude); // Perpendicular offset
+  const scrollPos = _v1.copy(position).add(_v2);
+  scrollPos.z += zOffsetMagnitude; // Add slight Z variation
+  scrollPos.y = PATH_ELEMENT_Y; // Ensure consistent Y for base
+
+  const geo = new THREE.CylinderGeometry(0.4, 0.4, 1.5, 16); // Slightly smaller scroll
+  const mat = new THREE.MeshStandardMaterial({ color: 0xE8DCCA, roughness: 0.8, metalness: 0.2 });
   const scrollMesh = new THREE.Mesh(geo, mat);
   scrollMesh.position.copy(scrollPos);
+  scrollMesh.position.y += 0.75; // Base of scroll on PATH_ELEMENT_Y + half height
   scrollMesh.castShadow = scrollMesh.receiveShadow = true;
   scene.add(scrollMesh);
 
-  // Colored card
-  const cardGeo = new THREE.PlaneGeometry(1.6, 0.6);
+  const cardGeo = new THREE.PlaneGeometry(1.5, 0.5);
   const cardMat = new THREE.MeshStandardMaterial({
-    color, side: THREE.DoubleSide, roughness: 0.7, metalness: 0.3
+    color, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.1,
+    emissive: color, // Make card glow
+    emissiveIntensity: 0.5 // Adjust intensity of glow
   });
   const card = new THREE.Mesh(cardGeo, cardMat);
-  card.position.set(scrollPos.x, scrollPos.y + 1.2, scrollPos.z);
-  card.lookAt(position.x, card.position.y, position.z);
-  card.castShadow = card.receiveShadow = true;
-  scene.add(card);
+  card.position.set(0, 1.0, 0); // Position relative to scrollMesh top center
+  scrollMesh.add(card); // Add card as child of scroll for easier compound rotation/positioning
   
-  // Text label
-  try {
-    fontLoader.load('fonts/helvetiker_regular.typeface.json', function(font) {
-      const textGeo = new TextGeometry(title, {
-        font: font,
-        size: 0.2,
-        height: 0.02,
-        curveSegments: 4,
-        bevelEnabled: false
-      });
-      
-      textGeo.computeBoundingBox();
-      const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
-      
-      const textMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
-      const textMesh = new THREE.Mesh(textGeo, textMat);
-      textMesh.position.set(card.position.x + centerOffset, card.position.y, card.position.z + 0.01);
-      textMesh.lookAt(position.x, textMesh.position.y, position.z);
-      textMesh.castShadow = true;
-      scene.add(textMesh);
-    });
-  } catch (e) {
-    console.warn('Error loading font:', e);
-  }
+  // Make card face towards the path's center line (approx.)
+  // Calculate lookAt point on the path, at card's height
+  _v3.set(position.x, scrollMesh.position.y + card.position.y, position.z);
+  card.lookAt(_v3); // Card itself looks at path, scrollMesh determines its base position/orientation
+  card.castShadow = true; // Card can cast a shadow
+  // scene.add(card); // No longer add directly to scene
 
-  scrolls.push({ position: scrollPos.clone(), title });
+  if (helvetikerFont) {
+    const textGeo = new TextGeometry(title, {
+      font: helvetikerFont, size: 0.18, height: 0.02, curveSegments: 3, bevelEnabled: false
+    });
+    textGeo.computeBoundingBox();
+    const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
+    const textMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.4 });
+    const textMesh = new THREE.Mesh(textGeo, textMat);
+    textMesh.position.set(centerOffset, -0.05, 0.03); // Centered on card, slightly in front
+    card.add(textMesh);
+  } else {
+    console.error("Helvetiker font not preloaded for scroll title:", title);
+  }
+  scrolls.push({ mesh: scrollMesh, position: scrollMesh.position, title, ui });
 }
 
-function checkResumeProximity(ui, carriage) {
-  const pos = carriage.group.position;
+
+function checkResumeProximity(carObject) {
+  if (!carObject || !uiManager) return;
+  const carPos = carObject.position; // Assuming carObject is the car mesh itself
   scrolls.forEach(s => {
-    if (s.position.distanceTo(pos) < SCROLL_PROXIMITY_THRESHOLD) {
-      ui.show(s.title);
+    const distanceToScroll = s.position.distanceTo(carPos);
+    if (distanceToScroll < SCROLL_PROXIMITY_THRESHOLD) {
+      s.ui.show(s.title);
+    } else {
+      if (s.ui.isOpen(s.title)) {
+        s.ui.hide(s.title);
+      }
     }
   });
 }
@@ -432,166 +408,267 @@ function checkResumeProximity(ui, carriage) {
 function createUserInterface() {
   const uiContainer = document.createElement('div');
   Object.assign(uiContainer.style, {
-    position: 'absolute',
-    bottom: '20px',
-    left:   '20px',
-    color:  'white',
-    padding: '10px',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: '5px',
-    fontFamily: 'Arial, sans-serif'
+    position: 'absolute', bottom: '20px', left:   '20px', color:  'white',
+    padding: '10px', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '5px',
+    fontFamily: 'Arial, sans-serif', zIndex: '100', fontSize: '14px'
   });
   uiContainer.innerHTML = `
-    <h3 style="margin:0 0 10px 0">Interactive Resume - Controls:</h3>
-    <div>W / ↑ - Accelerate</div>
-    <div>S / ↓ - Brake/Reverse</div>
-    <div>A / ← - Steer Left</div>
-    <div>D / → - Steer Right</div>
-    <div>C - Change Camera Mode</div>
-    <div>Approach the scrolls to view resume sections!</div>
+    <h3 style="margin:0 0 10px 0; font-size: 16px;">Interactive Resume</h3>
+    <div><b>W / &uarr;</b> : Accelerate</div>
+    <div><b>S / &darr;</b> : Brake/Reverse</div>
+    <div><b>A / &larr;</b> : Steer Left</div>
+    <div><b>D / &rarr;</b> : Steer Right</div>
+    <div><b>Mouse Orbit/Scroll</b> : Camera Control</div>
+    <div style="margin-top: 8px;">Approach scrolls to view resume sections.</div>
   `;
   document.body.appendChild(uiContainer);
 }
 
 // ───── Main Setup ───────────────────────────────────────────────────────────────
-function init() {
-  console.log('init() called');
+let pathCurve = createPath();
+let car = null;
+let trees = [];
+let keysPressed = {};
+let controls;
+let uiManager;
+
+const VEHICLE_PHYSICS = {
+  maxSpeed: 22, acceleration: 45, brakeForce: 60, // Increased brake force
+  steeringSpeed: 1.6, steeringReturn: 3.2, maxSteering: Math.PI / 3.8,
+  wheelBase: 2.8, friction: 5 // Increased friction
+};
+
+let velocity = 0;
+let steeringAngle = 0;
+let engineForce = 0;
+
+const clock = new THREE.Clock();
+
+createGround(); // Create ground early, textures will load
+
+async function loadAssets() {
+  const objLoader = new OBJLoader(loadingManager);
+  const fbxLoader = new FBXLoader(loadingManager);
+  const mtlLoader = new MTLLoader(loadingManager);
+  const appFontLoader = new FontLoader(loadingManager);
+
+  const carPath = 'assets/car/Humvee.fbx';
+  const treeMtlPath = 'assets/low_poly_tree/Lowpoly_tree_sample.mtl';
+  const treeObjPath = 'assets/low_poly_tree/Lowpoly_tree_sample.obj';
+  const fontPath = 'fonts/helvetiker_regular.typeface.json';
+
+  // Note on FBXLoader warning: "invalid (negative) material indices" for Humvee.fbx
+  // This is an issue within the FBX file itself and may cause parts of the car to use default materials.
+  // This cannot be fixed in JS code without modifying the FBX or complex runtime material overrides.
+  const carPromise = fbxLoader.loadAsync(carPath);
+  const treeMaterialsPromise = mtlLoader.loadAsync(treeMtlPath);
+  const fontPromise = appFontLoader.loadAsync(fontPath);
+  
+  // Await critical assets
+  const [loadedCar, materials, loadedFont] = await Promise.all([carPromise, treeMaterialsPromise, fontPromise]);
+
+  // Process Car
+  loadedCar.scale.set(0.02, 0.02, 0.02);
+  loadedCar.position.set(0, PATH_ELEMENT_Y, pathCurve.getPointAt(0.5).z); // Start car on path Y
+  loadedCar.traverse(child => {
+    if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+    }
+  });
+
+  // Process Tree Model
+  materials.preload();
+  objLoader.setMaterials(materials);
+  const treeModel = await objLoader.loadAsync(treeObjPath); // OBJ uses preloaded materials
+  treeModel.traverse(child => {
+      if (child.isMesh) {
+          child.castShadow = true;
+      }
+  });
+  
+  return { loadedCar, treeModel, loadedFont };
+}
+
+
+function placeTreesAlongPath(treeModel) {
+  const placedTrees = [];
+  // Get fewer points but space them more with modulo, or more points for finer control with getPointAt(t)
+  const numPointsForTreeLine = PATH_LENGTH; // Number of points to check along the path
+  
+  for (let i = 0; i < numPointsForTreeLine; i++) {
+    if (i % TREE_SPACING_MODULO === Math.floor(Math.random() * (TREE_SPACING_MODULO/4))) { // Add jitter to modulo
+      const t = i / numPointsForTreeLine;
+      const point = pathCurve.getPointAt(t);
+      // const tangent = pathCurve.getTangentAt(t); // Could use for orientation if needed
+
+      const baseScale = 0.7 + Math.random() * 0.5;
+      const randomXOffset = ROAD_WIDTH / 2 + 4 + Math.random() * 12; // 4-16 units from road edge
+      const randomZShift = (Math.random() - 0.5) * 8; // +/- 4 units along Z from the path point's Z
+
+      // Left side
+      const leftTree = treeModel.clone();
+      leftTree.position.set(point.x + randomXOffset, PATH_ELEMENT_Y, point.z + randomZShift);
+      leftTree.rotation.y = Math.random() * Math.PI * 2;
+      leftTree.scale.set(baseScale, baseScale + Math.random() * 0.4, baseScale);
+      scene.add(leftTree);
+      placedTrees.push(leftTree);
+
+      // Right side (ensure it doesn't place on same exact random Z shift)
+      const rightTree = treeModel.clone();
+      rightTree.position.set(point.x - randomXOffset, PATH_ELEMENT_Y, point.z - randomZShift + (Math.random()-0.5)*2); // Slightly different Z for right
+      rightTree.rotation.y = Math.random() * Math.PI * 2;
+      rightTree.scale.set(baseScale, baseScale + Math.random() * 0.4, baseScale);
+      scene.add(rightTree);
+      placedTrees.push(rightTree);
+    }
+  }
+  return placedTrees;
+}
+
+
+function setupControlsListeners() {
+  window.addEventListener('keydown', e => keysPressed[e.key.toLowerCase()] = true);
+  window.addEventListener('keyup', e => delete keysPressed[e.key.toLowerCase()]);
+}
+
+function processCarControls(delta) {
+  const steerInput = (keysPressed['a'] || keysPressed['arrowleft']) ? 1 : 
+                     (keysPressed['d'] || keysPressed['arrowright']) ? -1 : 0;
+  
+  if (steerInput !== 0) {
+    steeringAngle = THREE.MathUtils.clamp(
+      steeringAngle + steerInput * VEHICLE_PHYSICS.steeringSpeed * delta,
+      -VEHICLE_PHYSICS.maxSteering, VEHICLE_PHYSICS.maxSteering
+    );
+  } else {
+    steeringAngle = THREE.MathUtils.damp(
+      steeringAngle, 0, VEHICLE_PHYSICS.steeringReturn, delta
+    );
+  }
+
+  engineForce = 0;
+  if (keysPressed['w'] || keysPressed['arrowup']) {
+    engineForce = VEHICLE_PHYSICS.acceleration;
+  }
+  if (keysPressed['s'] || keysPressed['arrowdown']) {
+    engineForce = -VEHICLE_PHYSICS.brakeForce;
+  }
+
+  let acceleration = engineForce * delta;
+  velocity += acceleration;
+  velocity = THREE.MathUtils.clamp(velocity, -VEHICLE_PHYSICS.maxSpeed/1.5, VEHICLE_PHYSICS.maxSpeed); // Slower reverse
+}
+
+function applyVehicleFriction(delta) {
+  if (engineForce === 0 || Math.sign(engineForce) !== Math.sign(velocity)) { // Apply friction if no engine force or if braking against motion
+    const frictionMagnitude = Math.abs(VEHICLE_PHYSICS.friction * delta);
+    if (Math.abs(velocity) < frictionMagnitude) {
+        velocity = 0;
+    } else {
+        velocity -= Math.sign(velocity) * frictionMagnitude;
+    }
+  }
+  if (Math.abs(velocity) < 0.01 && engineForce === 0) velocity = 0;
+}
+
+function updateVehicle(delta) {
+  if (!car) return;
+
+  if (Math.abs(steeringAngle) > 0.001) {
+      const turnRadius = VEHICLE_PHYSICS.wheelBase / Math.sin(steeringAngle); // Use sin for more common Ackermann approx.
+      const angularVel = velocity / turnRadius;
+      car.rotation.y += angularVel * delta;
+  }
+  
+  _v1.set(0, 0, 1).applyQuaternion(car.quaternion).multiplyScalar(velocity * delta);
+  car.position.add(_v1);
+  car.position.y = PATH_ELEMENT_Y; // Keep car on the defined path Y
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = Math.min(clock.getDelta(), MAX_DELTA);
+
+  if (car) {
+    processCarControls(delta);
+    applyVehicleFriction(delta);
+    updateVehicle(delta);
+
+    // Camera update
+    const offset = _v2.set(0, cameraSettings.height, -cameraSettings.distance);
+    offset.applyQuaternion(car.quaternion);
+    const desiredCameraPosition = _v3.addVectors(car.position, offset);
+    camera.position.lerp(desiredCameraPosition, cameraSettings.smoothing);
+    
+    controls.target.copy(car.position);
+    controls.target.y += 1.0; // Look slightly above the car's origin for better perspective
+    controls.update();
+  }
+  
+  if (uiManager && car) {
+    checkResumeProximity(car); // Pass car mesh directly
+  }
+
+  renderer.render(scene, camera);
+}
+
+async function init() {
   try {
-    const ground = createGround();
-    const pathCurve = createPath();
-    createForest();
+    scene.background = new THREE.Color(0x87CEEB); // Sky blue
+
+    const assets = await loadAssets();
+    car = assets.loadedCar;
+    helvetikerFont = assets.loadedFont; // Store preloaded font
+    scene.add(car);
+
+    trees = placeTreesAlongPath(assets.treeModel);
+
+    const roadGeometry = new THREE.PlaneGeometry(ROAD_WIDTH, PATH_LENGTH * 1.05, 1, 20); // Slightly longer, more segments
+    const roadMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x383838, // Darker road for visibility
+        roughness: 0.85, 
+        metalness: 0.1 
+    });
+    const road = new THREE.Mesh(roadGeometry, roadMaterial);
+    road.rotation.x = -Math.PI / 2;
+    road.position.y = ROAD_Y; // Position road slightly above ground
+    road.receiveShadow = true;
+    scene.add(road);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.04;
+    controls.screenSpacePanning = false;
+    controls.minDistance = 3;
+    controls.maxDistance = 80;
+    // controls.maxPolarAngle = Math.PI / 2 - 0.01; // Prevent camera going too low
+
+    _v1.set(0, cameraSettings.height, -cameraSettings.distance).applyQuaternion(car.quaternion);
+    camera.position.addVectors(car.position, _v1);
+    controls.target.copy(car.position);
+    controls.target.y += 1.0;
+    controls.update();
+
+    setupControlsListeners();
+    uiManager = new UIManager();
+    createResumeContent(pathCurve, uiManager);
     createUserInterface();
 
-    const ui = new UIManager();
-    const carriage = new Carriage();
-    carriage.group.position.set(0, 0, -40);
-    carriage.addToScene(scene);
-    createResumeContent(pathCurve);
-
-    camera.position.set(0, 2, -35);
-    camera.lookAt(carriage.group.position);
-
-    // ───── Handle Resize (Debounced) ──────────────────────────────────────────────
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      }, 200);
-    });
-
-    // ───── Input Handling ──────────────────────────────────────────────────────────
-    const keysPressed = {};
-    window.addEventListener('keydown', e => keysPressed[e.key.toLowerCase()] = true);
-    window.addEventListener('keyup',   e => keysPressed[e.key.toLowerCase()] = false);
-
-    let previousCKey = false;
-    let orbitAngle = 0;
-
-    function processControls(delta) {
-      // Steer
-      let steer = 0;
-      if (keysPressed['a']||keysPressed['arrowleft'])  steer = -1;
-      if (keysPressed['d']||keysPressed['arrowright']) steer =  1;
-      carriage.steer(steer);
-
-      if (steer === 0) carriage.centerSteering(delta);
-
-      // Accelerate
-      let accel = 0;
-      if (keysPressed['w']||keysPressed['arrowup'])    accel = 10;
-      if (keysPressed['s']||keysPressed['arrowdown'])  accel = -10;
-      carriage.accelerate(accel, delta);
-      carriage.applyFriction(delta);
-
-      // Camera mode switch
-      if (keysPressed['c'] && !previousCKey) {
-        const modes = ['chase','orbit','free'];
-        const idx = modes.indexOf(cameraSettings.mode);
-        cameraSettings.mode = modes[(idx + 1) % modes.length];
-        previousCKey = true;
-      } else if (!keysPressed['c']) {
-        previousCKey = false;
-      }
-    }
-
-    function updateCamera(delta) {
-      delta = Math.min(delta, MAX_DELTA);
-
-      // copy carriage position once
-      const carPos = carriage.group.position;
-      _v3.copy(carPos);
-
-      // compute forward dir without new Vector3()
-      _v4.set(
-        Math.sin(carriage.facingAngle),
-        0,
-        Math.cos(carriage.facingAngle)
-      );
-
-      let target = _v3;
-
-      if (cameraSettings.mode === 'chase') {
-        // chase: back + up
-        _v3.add(_v4.multiplyScalar(-cameraSettings.distance));
-        _v3.y += cameraSettings.height;
-        target = _v3;
-      } else if (cameraSettings.mode === 'orbit') {
-        orbitAngle += delta * 0.5;
-        _v3.x += Math.sin(orbitAngle) * cameraSettings.distance;
-        _v3.y  = cameraSettings.height + carPos.y;
-        _v3.z += Math.cos(orbitAngle) * cameraSettings.distance;
-        target = _v3;
-      } else {
-        // free mode: do nothing
-        return;
-      }
-
-      camera.position.lerp(target, cameraSettings.smoothing);
-      camera.lookAt(_v3.copy(carriage.group.position).addScalar(0.5));
-
-      // FOV tweak
-      const speedFactor = Math.abs(carriage.velocity) / 10;
-      const desiredFOV = THREE.MathUtils.lerp(
-        cameraSettings.defaultFOV,
-        cameraSettings.movingFOV,
-        speedFactor
-      );
-      camera.fov = THREE.MathUtils.lerp(camera.fov, desiredFOV, cameraSettings.fovTransitionSpeed * delta);
-      camera.updateProjectionMatrix();
-    }
-
-    function animate() {
-      requestAnimationFrame(animate);
-      const delta = carriage.clock.getDelta();
-      processControls(delta);
-      carriage.update(delta);
-      updateCamera(delta);
-      checkResumeProximity(ui, carriage);
-      renderer.render(scene, camera);
-    }
-    
-    // Start animation loop
     animate();
-    
-  } catch (e) {
-    console.error('Error in init:', e);
-    errorMessage.style.display = 'block';
-    errorMessage.textContent = 'Error initializing scene: ' + e.message;
+    window.addEventListener('resize', onWindowResize);
+
+  } catch (error) {
+    console.error('Initialization error:', error);
+    if (errorMessage) {
+        errorMessage.textContent = 'Initialization Error: ' + (error.message || "Unknown error");
+        errorMessage.style.display = 'block';
+    }
   }
 }
 
-// Start the application
-// Start loading assets and initialize when done
-loadingManager.onLoad = function() {
-  console.log('loadingManager.onLoad triggered');
-  console.log('All resources loaded!');
-  // Hide loading screen with fade effect
-  loadingContainer.style.opacity = 0;
-  setTimeout(() => {
-    loadingContainer.style.display = 'none';
-    init(); // Initialize after assets load
-  }, 1000);
-};
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
